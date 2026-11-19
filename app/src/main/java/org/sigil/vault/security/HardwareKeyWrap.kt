@@ -58,9 +58,11 @@ class HardwareKeyWrap(private val context: Context) {
         null
     }
 
-    fun destroy() = try {
-        if (keyStore.containsAlias(alias)) keyStore.deleteEntry(alias)
-    } catch (_: Exception) {
-        Unit
+    fun destroy() {
+        try {
+            if (keyStore.containsAlias(alias)) keyStore.deleteEntry(alias)
+        } catch (_: Exception) {
+            Unit
+        }
     }
 }

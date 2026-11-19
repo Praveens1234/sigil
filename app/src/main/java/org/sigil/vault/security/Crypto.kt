@@ -55,7 +55,7 @@ internal object Crypto {
         aad: ByteArray?,
         input: ByteArray
     ): ByteArray {
-        val aead = ChaCha20Poly1305.newInstance(ChaCha7539Engine::class.java)
+        val aead = ChaCha20Poly1305(ChaCha7539Engine(), 16)
         aead.init(encrypt, ParametersWithIV(KeyParameter(key), nonce))
         if (aad != null && aad.isNotEmpty()) aead.processAadByte(aad[0])
         // processAADBytes avoids special cases for an empty AAD field.

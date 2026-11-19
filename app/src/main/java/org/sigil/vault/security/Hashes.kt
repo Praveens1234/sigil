@@ -35,13 +35,18 @@ internal object Hashes {
     fun sha1(data: ByteArray): ByteArray = md("SHA-1", data)
 
     private fun md(alg: String, data: ByteArray): ByteArray {
-        // commons-codec registers SHA3-*/BLAKE2b providers.
         return try {
             MessageDigest.getInstance(alg).digest(data)
         } catch (e: Exception) {
-            // Fall back to the bundled Keccak provider from commons-codec.
-            MessageDigest.getInstance(alg, org.apache.commons.codec.digest.MessageDigestAlgorithms::class.java.javaClass)?.digest(data)
-                ?: throw IllegalStateException("Hash $alg unavailable", e)
+            // commons-codec supplies SHA3-*, Keccak and BLAKE2b digests.
+            try {
+                org.apache.commons.codec.digest.DigestUtils.digest(
+                    org.apache.commons.codec.digest.MessageDigestAlgorithms.newDigest(alg),
+                    data
+                )
+            } catch (fallback: Exception) {
+                throw IllegalStateException("Hash $alg unavailable", fallback)
+            }
         }
     }
 }

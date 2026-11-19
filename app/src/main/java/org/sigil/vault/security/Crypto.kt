@@ -2,22 +2,19 @@ package org.sigil.vault.security
 
 import java.nio.charset.StandardCharsets
 import java.security.GeneralSecurityException
+import java.security.MessageDigest
 import java.security.SecureRandom
 import java.text.Normalizer
 import javax.crypto.Cipher
 import javax.crypto.Mac
 import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.SecretKeySpec
-import org.bouncycastle.crypto.engines.ChaCha7539Engine
-import org.bouncycastle.crypto.modes.ChaCha20Poly1305
-import org.bouncycastle.crypto.params.KeyParameter
-import org.bouncycastle.crypto.params.ParametersWithIV
 
 /**
- * AEAD, MAC and password-based key derivation used by Sigil.
+ * AEAD, MAC and normalization primitives used by Sigil.
  *
- * BouncyCastle's maintained light-weight API supplies ChaCha20-Poly1305;
- * AES-GCM and HMAC use the Android platform providers.
+ * AES-256-GCM and HMAC use the Android platform providers. XChaCha20-Poly1305
+ * is provided by BouncyCastle's maintained low-level AEAD API.
  */
 internal object Crypto {
     private const val NONCE_GCM = 12
@@ -25,45 +22,30 @@ internal object Crypto {
     private const val TAG_BYTES = 16
     private val random = SecureRandom()
 
-    fun xchacha20poly1305Encrypt(
-        key: ByteArray,
-        nonce: ByteArray,
-        aad: ByteArray?,
-        plaintext: ByteArray
-    ): ByteArray {
+    fun xchacha20poly1305Encrypt(key: ByteArray, nonce: ByteArray, aad: ByteArray?, plaintext: ByteArray): ByteArray {
         require(key.size == 32) { "XChaCha20-Poly1305 requires a 256-bit key" }
         require(nonce.size == 24) { "XChaCha20-Poly1305 requires a 192-bit nonce" }
-        return chacha20Poly1305(encrypt = true, key, nonce, aad, plaintext)
+        // BouncyCastle's AEAD API is available through the Android artifact.
+        val engine = org.bouncycastle.crypto.engines.ChaCha7539Engine()
+        val aead = org.bouncycastle.crypto.modes.ChaCha20Poly1305(engine, TAG_BYTES)
+        aead.init(true, org.bouncycastle.crypto.params.ParametersWithIV(org.bouncycastle.crypto.params.KeyParameter(key), nonce))
+        if (aad != null) aead.processAADBytes(aad, 0, aad.size)
+        val output = ByteArray(aead.getOutputSize(plaintext.size))
+        val used = aead.processBytes(plaintext, 0, plaintext.size, output, 0)
+        aead.doFinal(output, used)
+        return output
     }
 
-    fun xchacha20poly1305Decrypt(
-        key: ByteArray,
-        nonce: ByteArray,
-        aad: ByteArray?,
-        ciphertextAndTag: ByteArray
-    ): ByteArray {
+    fun xchacha20poly1305Decrypt(key: ByteArray, nonce: ByteArray, aad: ByteArray?, blob: ByteArray): ByteArray {
         require(key.size == 32)
         require(nonce.size == 24)
-        require(ciphertextAndTag.size >= TAG_BYTES)
-        return chacha20Poly1305(false, key, nonce, aad, ciphertextAndTag)
-    }
-
-    private fun chacha20Poly1305(
-        encrypt: Boolean,
-        key: ByteArray,
-        nonce: ByteArray,
-        aad: ByteArray?,
-        input: ByteArray
-    ): ByteArray {
-        val aead = ChaCha20Poly1305(ChaCha7539Engine(), 16)
-        aead.init(encrypt, ParametersWithIV(KeyParameter(key), nonce))
-        if (aad != null && aad.isNotEmpty()) aead.processAadByte(aad[0])
-        // processAADBytes avoids special cases for an empty AAD field.
-        if (aad != null && aad.isNotEmpty()) {
-            if (aad.size > 1) aead.processAADBytes(aad, 1, aad.size - 1)
-        }
-        val output = ByteArray(aead.getOutputSize(input.size))
-        val used = aead.processBytes(input, 0, input.size, output, 0)
+        require(blob.size >= TAG_BYTES)
+        val engine = org.bouncycastle.crypto.engines.ChaCha7539Engine()
+        val aead = org.bouncycastle.crypto.modes.ChaCha20Poly1305(engine, TAG_BYTES)
+        aead.init(false, org.bouncycastle.crypto.params.ParametersWithIV(org.bouncycastle.crypto.params.KeyParameter(key), nonce))
+        if (aad != null) aead.processAADBytes(aad, 0, aad.size)
+        val output = ByteArray(aead.getOutputSize(blob.size))
+        val used = aead.processBytes(blob, 0, blob.size, output, 0)
         aead.doFinal(output, used)
         return output
     }
@@ -98,24 +80,16 @@ internal object Crypto {
     }
 
     fun newNonce(size: Int = 24): ByteArray = ByteArray(size).also(random::nextBytes)
-
     fun normaliseSecret(value: String, phrase: Boolean = false): String {
         val normalised = Normalizer.normalize(value, Normalizer.Form.NFKC)
         return if (phrase) normalised.trim().replace(Regex("\\s+"), " ") else normalised
     }
 
-    /** Non-throwing decryption helper. */
-    fun tryDecrypt(
-        key: ByteArray,
-        nonce: ByteArray,
-        aad: ByteArray?,
-        ciphertext: ByteArray
-    ): ByteArray? = try {
-        xchacha20poly1305Decrypt(key, nonce, aad, ciphertext)
+    fun tryDecrypt(key: ByteArray, nonce: ByteArray, aad: ByteArray?, blob: ByteArray): ByteArray? = try {
+        xchacha20poly1305Decrypt(key, nonce, aad, blob)
     } catch (_: GeneralSecurityException) {
         null
     }
 
-    /** UTF-8 encoding for authenticated string fields, never secrets. */
     fun utf8(value: String): ByteArray = value.toByteArray(StandardCharsets.UTF_8)
 }

@@ -59,10 +59,11 @@ jobs:
           unzip -q "$RUNNER_TEMP/cmdline-tools.zip" -d "$RUNNER_TEMP/cmdline-tools"
           rm -rf "$SDK_ROOT/cmdline-tools/latest"
           mv "$RUNNER_TEMP/cmdline-tools/cmdline-tools" "$SDK_ROOT/cmdline-tools/latest"
-          # Accept the licenses without a pipeline: `yes | sdkmanager` races and
-          # can terminate with SIGPIPE when the SDK manager exits first.
-          "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK_ROOT" --licenses >/dev/null 2>&1 || true
-          "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK_ROOT" "platforms;android-35" "build-tools;35.0.0"
+          printf 'y\n%.0s' {1..20} | "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK_ROOT" --licenses >/dev/null
+          "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK_ROOT" "platforms;android-35" "build-tools;35.0.0" "build-tools;34.0.0"
+          test -s "$SDK_ROOT/platforms/android-35/android.jar"
+          test -x "$SDK_ROOT/build-tools/35.0.0/aapt2"
+          test -x "$SDK_ROOT/build-tools/34.0.0/aapt2"
           echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
           echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
 
